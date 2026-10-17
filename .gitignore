@@ -25,13 +25,11 @@ venv/
 *.swp
 .cursor/
 
-# Report intermediates (figuras se versionan para el informe)
-# reports/figures/*.png
-
-# Model artifacts
+# Model / cache artifacts
 *.joblib
 *.pkl
 *.model
+results/cv_cache.pkl
 
 # OpenML cache (optional local)
 .openml/

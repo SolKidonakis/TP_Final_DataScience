@@ -13,8 +13,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 DEFAULT_CSV = DATA_DIR / "creditcard.csv"
 
-# Mirror público del dataset ULB (mismo CSV de Kaggle / TensorFlow)
 TF_MIRROR_URL = "https://storage.googleapis.com/download.tensorflow.org/data/creditcard.csv"
+
+PCA_COLS = [f"V{i}" for i in range(1, 29)]
+EXPECTED_COLS = ["Time", *PCA_COLS, "Amount", "Class"]
 
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -22,34 +24,30 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     for expected in ("time", "amount", "class"):
         if expected in cols_lower and cols_lower[expected] != expected.capitalize():
             df = df.rename(columns={cols_lower[expected]: expected.capitalize()})
-    if "Class" not in df.columns:
-        raise ValueError(f"No se encontró columna Class. Columnas: {list(df.columns)}")
+    missing = [c for c in EXPECTED_COLS if c not in df.columns]
+    if missing:
+        raise ValueError(f"Esquema inesperado, faltan columnas: {missing}")
     df["Class"] = pd.to_numeric(df["Class"], errors="coerce").astype(int)
-    return df
+    return df[EXPECTED_COLS]
 
 
 def load_creditcard(cache_path: Path | None = None, force_download: bool = False) -> pd.DataFrame:
-    """Carga el dataset ULB con cache local en CSV.
+    """Carga el dataset ULB con cache local y valida su esquema.
 
-    Orden de fuentes:
-    1) Cache local `data/creditcard.csv`
-    2) Mirror TensorFlow (sin credenciales)
-    3) Fallback OpenML data_id=1597
+    Fuentes: cache `data/creditcard.csv`, mirror público de TensorFlow y, como
+    último recurso, OpenML (data_id=1597).
     """
     cache_path = Path(cache_path) if cache_path else DEFAULT_CSV
     cache_path.parent.mkdir(parents=True, exist_ok=True)
 
     if cache_path.exists() and not force_download:
-        print(f"Cargando cache local: {cache_path}", flush=True)
         return _normalize_columns(pd.read_csv(cache_path))
 
-    print(f"Descargando dataset desde mirror TensorFlow...\n{TF_MIRROR_URL}", flush=True)
     try:
         urlretrieve(TF_MIRROR_URL, cache_path)
-        df = pd.read_csv(cache_path)
-        return _normalize_columns(df)
+        return _normalize_columns(pd.read_csv(cache_path))
     except Exception as exc:
-        print(f"Mirror TensorFlow falló ({exc}). Intentando OpenML...", flush=True)
+        print(f"Mirror TensorFlow no disponible ({exc}); usando OpenML.", flush=True)
 
     from sklearn.datasets import fetch_openml
 
@@ -60,57 +58,53 @@ def load_creditcard(cache_path: Path | None = None, force_download: bool = False
 
 
 def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Elimina duplicados exactos y deja una copia limpia."""
-    out = df.copy()
-    before = len(out)
-    out = out.drop_duplicates().reset_index(drop=True)
+    """Elimina duplicados exactos y registra cuántos se quitaron."""
+    before = len(df)
+    before_fraud = int(df["Class"].sum())
+    out = df.drop_duplicates().reset_index(drop=True)
     out.attrs["n_duplicates_removed"] = before - len(out)
+    out.attrs["n_fraud_duplicates_removed"] = before_fraud - int(out["Class"].sum())
     return out
 
 
-def add_log_amount(df: pd.DataFrame) -> pd.DataFrame:
-    """Agrega Amount_log = log1p(Amount) sin modificar Amount original."""
+def add_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Ingeniería de variables.
+
+    - Amount_log = log1p(Amount): reduce la asimetría del monto.
+    - Hour_sin / Hour_cos: hora del día en forma cíclica. Reemplaza a Time crudo,
+      que en una validación temporal toma en test valores fuera del rango visto
+      en entrenamiento.
+    """
     out = df.copy()
     out["Amount_log"] = np.log1p(out["Amount"].astype(float))
+    hour = (out["Time"] % 86400) / 3600.0
+    out["Hour"] = hour
+    out["Hour_sin"] = np.sin(2 * np.pi * hour / 24)
+    out["Hour_cos"] = np.cos(2 * np.pi * hour / 24)
     return out
 
 
-def feature_target_split(df: pd.DataFrame, use_log_amount: bool = True):
-    """Separa X e y. Usa Amount_log + Time + V1..V28 (sin Amount crudo si use_log_amount)."""
-    y = df["Class"].astype(int)
-    drop_cols = ["Class"]
-    if use_log_amount and "Amount_log" in df.columns:
-        drop_cols.append("Amount")
-    elif "Amount_log" in df.columns:
-        drop_cols.append("Amount_log")
-    X = df.drop(columns=[c for c in drop_cols if c in df.columns])
-    return X, y
+FEATURE_SETS = {
+    "completo": [*PCA_COLS, "Amount_log", "Hour_sin", "Hour_cos"],
+    "sin_monto": [*PCA_COLS, "Hour_sin", "Hour_cos"],
+    "sin_hora": [*PCA_COLS, "Amount_log"],
+    "solo_pca": list(PCA_COLS),
+    "con_time_crudo": [*PCA_COLS, "Amount_log", "Time"],
+}
+
+
+def feature_target_split(df: pd.DataFrame, feature_set: str = "completo"):
+    cols = FEATURE_SETS[feature_set]
+    return df[cols], df["Class"].astype(int)
 
 
 def random_split(X, y, test_size: float = 0.2, random_state: int = 42):
-    """Holdout estratificado 80/20."""
-    return train_test_split(
-        X, y, test_size=test_size, random_state=random_state, stratify=y
-    )
+    """Holdout estratificado 80/20 (desarrollo / test estable)."""
+    return train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=y)
 
 
-def temporal_split(df: pd.DataFrame, test_size: float = 0.2, use_log_amount: bool = True):
-    """Split temporal: entrena con operaciones anteriores y prueba con posteriores.
-
-    Ordena por Time y corta en el percentil (1 - test_size).
-    """
-    ordered = df.sort_values("Time").reset_index(drop=True)
-    cut = int(len(ordered) * (1 - test_size))
-    train_df = ordered.iloc[:cut].copy()
-    test_df = ordered.iloc[cut:].copy()
-    X_train, y_train = feature_target_split(train_df, use_log_amount=use_log_amount)
-    X_test, y_test = feature_target_split(test_df, use_log_amount=use_log_amount)
-    meta = {
-        "train_time_max": float(train_df["Time"].max()),
-        "test_time_min": float(test_df["Time"].min()),
-        "train_n": len(train_df),
-        "test_n": len(test_df),
-        "train_fraud": int(y_train.sum()),
-        "test_fraud": int(y_test.sum()),
-    }
-    return X_train, X_test, y_train, y_test, meta
+def temporal_split_index(df: pd.DataFrame, test_size: float = 0.2):
+    """Índices de un split temporal: 80 % inicial por Time para train, 20 % final para test."""
+    order = np.argsort(df["Time"].to_numpy(), kind="stable")
+    cut = int(len(order) * (1 - test_size))
+    return order[:cut], order[cut:]
