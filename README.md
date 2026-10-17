@@ -99,9 +99,18 @@ python scripts/build_presentacion.py
 
 ## Entregables
 
-- Informe Final: `reports/Informe_Final_Grupo33.pdf` (~9–10 páginas)
-- Presentación: `reports/Presentacion_Final_Grupo33.pdf` (12 slides) + `.pptx`
-- Código: este repositorio (`notebooks/` + `src/`)
+Según consigna, la entrega documental es **una sola Presentación Final** (PDF generado desde PowerPoint, máx. 12 páginas, sin apéndices ni código):
+
+- **Presentación Final:** `reports/Presentacion_Final_Grupo33.pdf` (12 páginas) + `.pptx`
+- Incluye **índice**, resumen ejecutivo, datos/metodología, modelado, Top-K, validación temporal, impacto y conclusiones.
+- Código: este repositorio (`notebooks/` + `src/`) + README
+
+Regenerar la presentación:
+
+```bash
+python scripts/regen_figures_compact.py
+python scripts/build_presentacion_final.py
+```
 
 ## Licencia de datos
 
