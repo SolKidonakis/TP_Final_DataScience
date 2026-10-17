@@ -99,17 +99,15 @@ python scripts/build_presentacion.py
 
 ## Entregables
 
-Según consigna, la entrega documental es **una sola Presentación Final** (PDF generado desde PowerPoint, máx. 12 páginas, sin apéndices ni código):
+La entrega documental es el **Informe Final escrito** (formato de los ejemplos de cátedra: A4, índice, narrativa y tablas; máximo 12 páginas de cuerpo, anexos aparte):
 
-- **Presentación Final:** `reports/Presentacion_Final_Grupo33.pdf` (12 páginas) + `.pptx`
-- Incluye **índice**, resumen ejecutivo, datos/metodología, modelado, Top-K, validación temporal, impacto y conclusiones.
+- **Informe Final:** `reports/Informe_Final_Grupo33.pdf`
 - Código: este repositorio (`notebooks/` + `src/`) + README
 
-Regenerar la presentación:
+Regenerar el informe:
 
 ```bash
-python scripts/regen_figures_compact.py
-python scripts/build_presentacion_final.py
+python scripts/build_informe.py
 ```
 
 ## Licencia de datos

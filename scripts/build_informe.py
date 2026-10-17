@@ -1,20 +1,19 @@
-"""Genera el Informe Final PDF (~10 páginas) a partir de results.json y figuras."""
+"""Informe Final escrito (formato cátedra): A4, índice, narrativa, figuras a escala."""
 
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
+from PIL import Image as PILImage
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import (
     Image,
-    KeepTogether,
-    ListFlowable,
-    ListItem,
     PageBreak,
     Paragraph,
     SimpleDocTemplate,
@@ -28,86 +27,108 @@ RESULTS = ROOT / "reports" / "results.json"
 FIGURES = ROOT / "reports" / "figures"
 OUT = ROOT / "reports" / "Informe_Final_Grupo33.pdf"
 
-
-def pct(x, digits=1):
-    return f"{100 * float(x):.{digits}f} %"
-
-
-def num(x, digits=3):
-    return f"{float(x):.{digits}f}"
+NAVY = colors.HexColor("#1F4E79")
+TEAL = colors.HexColor("#2E75B6")
+LINE = colors.HexColor("#B0B0B0")
+ROW = colors.HexColor("#F4F7FB")
+HEADER_BG = colors.HexColor("#1F4E79")
 
 
-def load_results():
-    return json.loads(RESULTS.read_text(encoding="utf-8"))
+def pct(x, d=1):
+    return f"{100 * float(x):.{d}f} %"
+
+
+def num(x, d=3):
+    return f"{float(x):.{d}f}".replace(".", ",")
 
 
 def styles():
-    base = getSampleStyleSheet()
-    styles = {
+    return {
+        "kicker": ParagraphStyle(
+            "kicker", fontName="Helvetica", fontSize=11, leading=16.5,
+            alignment=TA_CENTER, textColor=colors.HexColor("#C0392B"), spaceAfter=6,
+        ),
         "cover_title": ParagraphStyle(
-            "cover_title", parent=base["Title"], fontName="Helvetica-Bold",
-            fontSize=20, leading=26, alignment=TA_CENTER, spaceAfter=12,
+            "cover_title", fontName="Helvetica-Bold", fontSize=18, leading=24,
+            alignment=TA_CENTER, spaceAfter=10, textColor=colors.black,
         ),
         "cover_sub": ParagraphStyle(
-            "cover_sub", parent=base["Normal"], fontName="Helvetica",
-            fontSize=12, leading=18, alignment=TA_CENTER, spaceAfter=6,
+            "cover_sub", fontName="Helvetica", fontSize=12, leading=18,
+            alignment=TA_CENTER, spaceAfter=4,
+        ),
+        "idx": ParagraphStyle(
+            "idx", fontName="Helvetica", fontSize=12, leading=18,
+            alignment=TA_CENTER, spaceAfter=3,
         ),
         "h1": ParagraphStyle(
-            "h1", parent=base["Heading1"], fontName="Helvetica-Bold",
-            fontSize=14, leading=20, spaceBefore=10, spaceAfter=8, textColor=colors.HexColor("#1F4E79"),
+            "h1", fontName="Helvetica-Bold", fontSize=14, leading=21,
+            textColor=NAVY, spaceBefore=10, spaceAfter=8,
         ),
         "h2": ParagraphStyle(
-            "h2", parent=base["Heading2"], fontName="Helvetica-Bold",
-            fontSize=12, leading=16, spaceBefore=8, spaceAfter=6, textColor=colors.HexColor("#2E75B6"),
+            "h2", fontName="Helvetica-Bold", fontSize=12, leading=18,
+            textColor=TEAL, spaceBefore=8, spaceAfter=6,
         ),
         "body": ParagraphStyle(
-            "body", parent=base["Normal"], fontName="Helvetica",
-            fontSize=11, leading=16.5, alignment=TA_JUSTIFY, spaceAfter=6,
+            "body", fontName="Helvetica", fontSize=12, leading=18,
+            alignment=TA_JUSTIFY, spaceAfter=8,
         ),
         "bullet": ParagraphStyle(
-            "bullet", parent=base["Normal"], fontName="Helvetica",
-            fontSize=11, leading=16.5, leftIndent=10, spaceAfter=3,
+            "bullet", fontName="Helvetica", fontSize=12, leading=18,
+            leftIndent=12, spaceAfter=4, alignment=TA_JUSTIFY,
         ),
         "caption": ParagraphStyle(
-            "caption", parent=base["Normal"], fontName="Helvetica-Oblique",
-            fontSize=9, leading=12, alignment=TA_CENTER, spaceAfter=10, textColor=colors.grey,
+            "caption", fontName="Helvetica-Oblique", fontSize=9, leading=12,
+            alignment=TA_CENTER, textColor=colors.grey, spaceBefore=3, spaceAfter=10,
         ),
-        "footer": ParagraphStyle(
-            "footer", parent=base["Normal"], fontName="Helvetica",
-            fontSize=8, alignment=TA_CENTER, textColor=colors.grey,
+        "cell": ParagraphStyle(
+            "cell", fontName="Helvetica", fontSize=8, leading=10,
+            alignment=TA_CENTER,
+        ),
+        "cell_l": ParagraphStyle(
+            "cell_l", fontName="Helvetica", fontSize=8, leading=10,
+            alignment=TA_LEFT,
+        ),
+        "th": ParagraphStyle(
+            "th", fontName="Helvetica-Bold", fontSize=8, leading=10,
+            alignment=TA_CENTER, textColor=colors.white,
         ),
     }
-    return styles
 
 
-def fig(name, width=15 * cm):
+def fig(name, max_w=15 * cm, max_h=6.0 * cm):
+    """Inserta PNG manteniendo aspecto y cabiendo en el marco (evita zoom/recorte)."""
     path = FIGURES / name
     if not path.exists():
         return Paragraph(f"[Figura no disponible: {name}]", styles()["caption"])
-    # Mantener proporción aproximada
-    img = Image(str(path))
-    img.drawWidth = width
-    img.drawHeight = width * img.imageHeight / img.imageWidth
-    if img.drawHeight > 8.5 * cm:
-        scale = (8.5 * cm) / img.drawHeight
-        img.drawWidth *= scale
-        img.drawHeight *= scale
-    return img
+    with PILImage.open(path) as im:
+        pw, ph = im.size
+    aspect = ph / float(pw)
+    w = max_w
+    h = w * aspect
+    if h > max_h:
+        h = max_h
+        w = h / aspect
+    return Image(str(path), width=w, height=h, kind="proportional")
 
 
 def table(data, col_widths=None):
-    t = Table(data, colWidths=col_widths, hAlign="CENTER")
+    S = styles()
+    formatted = []
+    for i, row in enumerate(data):
+        style = S["th"] if i == 0 else S["cell"]
+        formatted.append([Paragraph(str(c), style) for c in row])
+    t = Table(formatted, colWidths=col_widths, hAlign="CENTER")
     t.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E79")),
+                ("BACKGROUND", (0, 0), (-1, 0), HEADER_BG),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
-                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.white),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, ROW]),
+                ("GRID", (0, 0), (-1, -1), 0.4, LINE),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#AAAAAA")),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#EEF5FB")]),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
                 ("TOPPADDING", (0, 0), (-1, -1), 4),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
             ]
@@ -116,369 +137,499 @@ def table(data, col_widths=None):
     return t
 
 
-def best_model_block(split_payload):
-    name = split_payload["best_model"]
-    m = split_payload["models"][name]
-    return name, m
+def footer(canvas, doc):
+    canvas.saveState()
+    canvas.setFont("Helvetica", 8)
+    canvas.setFillColor(colors.grey)
+    canvas.drawString(2 * cm, 1.15 * cm, "Informe Final — Detección de Fraude — Grupo 33")
+    canvas.drawRightString(A4[0] - 2 * cm, 1.15 * cm, str(doc.page))
+    canvas.restoreState()
 
 
 def build():
     S = styles()
-    data = load_results()
+    data = json.loads(RESULTS.read_text(encoding="utf-8"))
     eda = data["eda"]
     rand = data["random_split"]
     temp = data["temporal_split"]
-    best_r_name, best_r = best_model_block(rand)
-    best_t_name, best_t = best_model_block(temp)
-    m50 = best_r["metrics_thr_0.5"]
-    msel = best_r["metrics_selected"]
-    cap = {row["k"]: row for row in best_r["captura_at_k"]}
-    m50_t = best_t["metrics_thr_0.5"]
+    best_name = rand["best_model"]
+    best = rand["models"][best_name]
+    m50 = best["metrics_thr_0.5"]
+    msel = best["metrics_selected"]
+    cap = {r["k"]: r for r in best["captura_at_k"]}
+    best_t = temp["best_model"]
+    m50_t = temp["models"][best_t]["metrics_thr_0.5"]
+    cap_t = {r["k"]: r for r in temp["models"][best_t]["captura_at_k"]}
+    n_neg = m50["n_neg"]
+    n_pos = m50["n_pos"]
+    fpr5_alerts = int(0.05 * n_neg)
 
     story = []
 
-    # Portada
-    story.append(Spacer(1, 2.5 * cm))
+    # -------- Portada + índice --------
+    story.append(Spacer(1, 1.6 * cm))
+    story.append(Paragraph("INFORME FINAL", S["kicker"]))
+    story.append(Paragraph("Detección de fraude en tarjetas de crédito:<br/>priorización de la cola de revisión", S["cover_title"]))
+    story.append(Spacer(1, 0.4 * cm))
     story.append(Paragraph("Diplomado en Ciencia de Datos y Análisis Avanzado", S["cover_sub"]))
-    story.append(Paragraph("Unidad N° 9 — Proyecto Final Integrador", S["cover_sub"]))
-    story.append(Spacer(1, 1.2 * cm))
-    story.append(Paragraph("INFORME FINAL", S["cover_sub"]))
-    story.append(Paragraph("Detección de Fraude<br/>en Tarjetas de Crédito", S["cover_title"]))
-    story.append(Paragraph(
-        "Modelo de clasificación supervisada para identificación<br/>de transacciones fraudulentas",
-        S["cover_sub"],
-    ))
-    story.append(Spacer(1, 1.5 * cm))
+    story.append(Paragraph("Unidad N.º 9 — Proyecto Final Integrador", S["cover_sub"]))
+    story.append(Spacer(1, 0.6 * cm))
     story.append(Paragraph("<b>Grupo 33</b>", S["cover_sub"]))
     story.append(Paragraph(
         "Mariana Chaile · Eugenia Salcedo Aisa · Sol Kidonakis<br/>Marco Garcia · Esteban Derghazarian",
         S["cover_sub"],
     ))
-    story.append(Spacer(1, 1 * cm))
     story.append(Paragraph("Octubre 2026", S["cover_sub"]))
+    story.append(Spacer(1, 1.2 * cm))
+    story.append(Paragraph("<b>Índice</b>", S["cover_sub"]))
+    story.append(Paragraph(
+        "1. Resumen ejecutivo — 2. Definición del problema y relevancia — "
+        "3. Datos y metodología — 4. Modelado y evaluación — "
+        "5. Interpretación del modelo — 6. Impacto en el negocio, riesgos y ética — "
+        "7. Conclusiones y recomendaciones — Anexos",
+        S["idx"],
+    ))
     story.append(PageBreak())
 
-    # 1. Resumen ejecutivo
-    story.append(Paragraph("1. Resumen Ejecutivo", S["h1"]))
+    # -------- 1. Resumen --------
+    story.append(Paragraph("1. Resumen ejecutivo", S["h1"]))
     story.append(Paragraph(
-        f"El fraude en tarjetas de crédito genera pérdidas globales superiores a USD 33.000 millones "
-        f"anuales. Este proyecto construye un modelo de clasificación supervisada sobre el dataset "
-        f"ULB (2013): <b>284.807</b> transacciones originales con <b>492</b> fraudes (0,172 %). "
-        f"Tras eliminar {data['duplicates_removed']} duplicados exactos quedan "
-        f"<b>{eda['n_rows']:,}</b> filas y <b>{eda['n_fraud']}</b> fraudes "
-        f"({pct(eda['fraud_rate'], 3)}).",
+        f"<b>Problema.</b> Un emisor de tarjetas (audiencia: Prevención de Fraude) debe "
+        f"decidir qué operaciones revisar a mano. El dataset ULB tiene "
+        f"<b>284.807</b> transacciones y solo <b>492</b> fraudes (0,172 %). "
+        f"Con tan pocos positivos, un FPR del 5 % sobre las ~{n_neg:,} legítimas del "
+        f"holdout produciría unas <b>{fpr5_alerts:,} alertas falsas</b>. No alcanza con "
+        f"controlar FPR: hay que mirar Precision y cuántas operaciones revisaría el equipo.",
         S["body"],
     ))
     story.append(Paragraph(
-        f"Tras comparar Regresión Logística, Random Forest, XGBoost, LightGBM y XGBoost+SMOTE, "
-        f"el modelo seleccionado en validación aleatoria es <b>{best_r_name}</b>, con "
-        f"<b>PR-AUC = {num(m50['pr_auc'])}</b>, Recall = {pct(m50['recall'])} y "
-        f"Precision = {pct(m50['precision'])} (umbral 0,5). "
-        f"Si el equipo revisa las <b>100</b> operaciones de mayor riesgo, encuentra "
-        f"<b>{cap[100]['frauds_found']}</b> fraudes; con las <b>500</b> de mayor riesgo, "
-        f"<b>{cap[500]['frauds_found']}</b> fraudes (lift {num(cap[500]['lift'], 1)}× sobre la tasa base).",
-        S["body"],
-    ))
-    story.append(Paragraph(
-        f"La validación temporal (entrenar con operaciones anteriores y probar con posteriores) "
-        f"confirma la robustez del enfoque: mejor modelo <b>{best_t_name}</b> con "
-        f"PR-AUC = {num(m50_t['pr_auc'])}. El proyecto incorpora la devolución del tutor: "
-        f"métricas principales PR-AUC / Recall / Precision, carga real de alertas y captura Top-K.",
+        f"<b>Solución.</b> Un modelo candidato <b>{best_name}</b> que ordena las "
+        f"transacciones por score de riesgo. El producto no es un “sí/no” rígido, sino "
+        f"una cola de revisión: el equipo mira primero las operaciones de mayor riesgo. "
+        f"La selección se basó en PR-AUC, Recall y Precision, y se contrastó un split "
+        f"aleatorio estratificado con una validación temporal por <i>Time</i>.",
         S["body"],
     ))
 
-    # 2. Problema
-    story.append(Paragraph("2. Definición del Problema y Relevancia", S["h1"]))
+    story.append(table(
+        [
+            ["Indicador (holdout)", "Azar / sin modelo", f"{best_name} aleatorio", f"{best_t} temporal"],
+            ["PR-AUC", "≈ 0,002 (tasa base)", num(m50["pr_auc"]), num(m50_t["pr_auc"])],
+            ["Recall (umbral 0,5)", "—", pct(m50["recall"]), pct(m50_t["recall"])],
+            ["Precision (umbral 0,5)", "—", pct(m50["precision"]), pct(m50_t["precision"])],
+            ["Fraudes en Top-100", f"≈ {max(1, int(100 * n_pos / (n_pos + n_neg)))}", str(cap[100]["frauds_found"]), str(cap_t[100]["frauds_found"])],
+            ["Fraudes en Top-500", f"≈ {max(1, int(500 * n_pos / (n_pos + n_neg)))}", str(cap[500]["frauds_found"]), str(cap_t[500]["frauds_found"])],
+            ["Alertas con umbral operativo", "miles (si FPR=5 %)", str(msel["alerts"]), "ver §4.4"],
+        ],
+        col_widths=[5.0 * cm, 3.6 * cm, 3.7 * cm, 3.7 * cm],
+    ))
     story.append(Paragraph(
-        "El área de Prevención de Fraude necesita priorizar revisiones humanas sobre un volumen "
-        "masivo de transacciones. Un sistema de reglas estáticas suele generar muchas alertas "
-        "imprecisas o dejar pasar patrones nuevos. El objetivo medible es clasificar cada "
-        "transacción como fraudulenta (1) o legítima (0), maximizando la detección de fraudes "
-        "y controlando la cantidad de alertas que el equipo puede revisar en la práctica.",
+        "Tabla 1. Lectura de negocio: captura de fraude con el mismo esfuerzo de revisión.",
+        S["caption"],
+    ))
+
+    story.append(Paragraph(
+        f"<b>Resultado.</b> En holdout aleatorio ({n_pos} fraudes en {rand['meta']['test_n']:,} "
+        f"operaciones), {best_name} alcanza PR-AUC {num(m50['pr_auc'])}, Recall "
+        f"{pct(m50['recall'])} y Precision {pct(m50['precision'])}. Si el equipo revisa "
+        f"las 100 operaciones de mayor riesgo encuentra <b>{cap[100]['frauds_found']}</b> "
+        f"fraudes (Precision@100 = {pct(cap[100]['precision_at_k'])}); con 500 revisiones, "
+        f"<b>{cap[500]['frauds_found']}</b> fraudes (lift {num(cap[500]['lift'], 1)}×). "
+        f"Con umbral {msel['threshold']:.2f} emite solo <b>{msel['alerts']} alertas</b> "
+        f"({msel['tp']} TP / {msel['fp']} FP).",
         S["body"],
     ))
     story.append(Paragraph(
-        "<b>Hipótesis:</b> los patrones en monto, frecuencia temporal y componentes PCA permiten "
-        "que un modelo de machine learning supere a reglas estáticas y priorice una cola de "
-        "revisión accionable.",
-        S["body"],
-    ))
-    story.append(Paragraph(
-        "<b>Restricciones:</b> desbalance extremo; variables V1–V28 anonimizadas por PCA; "
-        "dataset de solo 2 días; contexto académico sin streaming en tiempo real.",
+        f"<b>Límite y recomendación.</b> En validación temporal el mejor modelo es "
+        f"{best_t} (PR-AUC {num(m50_t['pr_auc'])}; Top-100 = {cap_t[100]['frauds_found']} "
+        f"fraudes). La señal se sostiene, pero el split aleatorio es algo más optimista. "
+        f"Se recomienda usar el score para priorizar la cola, fijar el umbral según la "
+        f"capacidad del equipo y revalidar en ventanas temporales nuevas antes de un "
+        f"despliegue real.",
         S["body"],
     ))
 
-    # 3. Datos y metodología
-    story.append(Paragraph("3. Datos y Metodología", S["h1"]))
+    # -------- 2. Problema --------
+    story.append(Paragraph("2. Definición del problema y relevancia", S["h1"]))
+    story.append(Paragraph(
+        "La pregunta de negocio no es “¿esta transacción es fraude con certeza?”, sino "
+        "<b>a qué operaciones asignar primero un cupo limitado de revisión humana</b>. "
+        "El producto es un ranking. La relevancia es directa: cada fraude no detectado "
+        "es pérdida financiera y cada falsa alarma consume analista y puede bloquear "
+        "a un cliente legítimo.",
+        S["body"],
+    ))
+    story.append(Paragraph(
+        "<b>Objetivo medible (fijado en la pre-entrega y ajustado por la devolución):</b> "
+        "maximizar Recall de fraude manteniendo Precision y un volumen de alertas "
+        "operable. Métricas principales: PR-AUC, Recall y Precision. Métrica de negocio: "
+        "captura en Top-100 y Top-500. Benchmark: un orden aleatorio captura, en el "
+        f"holdout, unos {max(1, int(100 * n_pos / (n_pos + n_neg)))} fraudes entre 100 "
+        "revisiones; el modelo debe multiplicar ese lift.",
+        S["body"],
+    ))
+    story.append(table(
+        [
+            ["Situación", "Lectura estadística", "Costo de negocio"],
+            ["Alerta sobre operación legítima", "Falso positivo", "Horas de analista + fricción al cliente"],
+            ["Fraude que no entra a la cola", "Falso negativo", "Pérdida del monto y daño reputacional"],
+            ["FPR ≤ 5 % como única traba", "Miles de FP con 0,17 % de prevalencia", "El equipo no puede revisar esa cola"],
+        ],
+        col_widths=[5.4 * cm, 5.3 * cm, 5.3 * cm],
+    ))
+    story.append(Paragraph("Tabla 2. Costos del error. El umbral es una decisión de capacidad, no un default técnico.", S["caption"]))
+    story.append(Paragraph(
+        "<b>Hipótesis.</b> H1: los componentes PCA (V1–V28) concentran señal discriminativa. "
+        "H2: el monto, transformado a escala logarítmica, aporta menos que las V* pero "
+        "ayuda a calibrar riesgo. H3: como existe <i>Time</i>, un split aleatorio puede "
+        "sobreestimar el desempeño; entrenar con operaciones anteriores y probar con "
+        "posteriores es la prueba más realista.",
+        S["body"],
+    ))
+
+    # -------- 3. Datos --------
+    story.append(Paragraph("3. Datos y metodología", S["h1"]))
     story.append(Paragraph("3.1 Fuente y calidad", S["h2"]))
     story.append(Paragraph(
-        f"Dataset <i>Credit Card Fraud Detection</i> (ULB / Kaggle), licencia ODbL. "
-        f"Tamaño: {eda['n_rows']:,} filas × {eda['n_cols']} columnas. "
-        f"Nulos: {eda['n_nulls']}. Duplicados eliminados: {data['duplicates_removed']}. "
-        f"Monto medio €{eda['amount_mean']:.1f} (mediana €{eda['amount_median']:.1f}). "
-        f"Time entre {eda['time_min']:.0f} y {eda['time_max']:.0f} segundos.",
+        "Fuente. Credit Card Fraud Detection, ULB Machine Learning Group / Kaggle "
+        "(Dal Pozzolo, Caelen, Johnson y Bontempi, 2015). Licencia ODbL v1.0. "
+        "Transacciones de titulares europeos en septiembre de 2013 (dos días). "
+        "Archivo original: 284.807 filas × 31 columnas. Tasa de fraude: 0,172 %. "
+        "El CSV se descarga de un mirror público y se cachea en <i>data/creditcard.csv</i>; "
+        "el esquema se valida al cargar (Time, V1–V28, Amount, Class).",
         S["body"],
     ))
-    story.append(fig("01_class_distribution.png", 12 * cm))
-    story.append(Paragraph("Figura 1. Distribución de clases (desbalance extremo).", S["caption"]))
+    story.append(table(
+        [
+            ["Hallazgo de calidad", "Decisión y motivo"],
+            ["0 nulos", "Ninguna imputación."],
+            [f"{data['duplicates_removed']} duplicados exactos", f"Eliminados; quedan {eda['n_rows']:,} filas y {eda['n_fraud']} fraudes."],
+            ["Amount sesgado (media €88; mediana €22)", "Amount_log = log1p(Amount); el crudo no entra al modelo."],
+            ["V1–V28 ya son PCA anonimizado", "Se usan sin reescalar; limitan interpretación causal."],
+            ["Time en [0 ; 172.792] s", "Se escala en el Pipeline y se usa para el split temporal."],
+            ["Desbalance 0,17 %", "class_weight / scale_pos_weight / SMOTE dentro del Pipeline."],
+        ],
+        col_widths=[7.5 * cm, 8.5 * cm],
+    ))
+    story.append(Paragraph("Tabla 3. Decisiones de calidad registradas (equivalente a un data log).", S["caption"]))
 
-    story.append(Paragraph("3.2 Preparación e ingeniería de variables", S["h2"]))
+    story.append(fig("01_class_distribution.png", max_w=12 * cm, max_h=5.2 * cm))
+    story.append(Paragraph("Figura 1. Distribución de clases tras la limpieza: el positivo es raro.", S["caption"]))
+
+    story.append(Paragraph("3.2 Conclusiones del EDA", S["h2"]))
     story.append(Paragraph(
-        "Se eliminaron filas exactamente duplicadas. Se creó <b>Amount_log = log1p(Amount)</b> "
-        "para reducir sesgo. <b>Time</b> y <b>Amount_log</b> se escalan con StandardScaler "
-        "dentro del Pipeline (sin leakage). V1–V28 se mantienen. El target es Class. "
-        "Esta disciplina de pipeline es crítica: aplicar SMOTE o escalado sobre todo el dataset "
-        "antes del split produciría data leakage y métricas infladas.",
+        f"Las variables con mayor |correlación| con Class son V17 ({num(eda['top_corr']['V17'], 2)}), "
+        f"V14 ({num(eda['top_corr']['V14'], 2)}) y V12 ({num(eda['top_corr']['V12'], 2)}). "
+        "Amount por sí solo no separa bien: hay fraudes en montos bajos y medios. "
+        "Time muestra concentraciones distintas por clase, lo que respalda H3. "
+        "Accuracy o ROC-AUC aislados son engañosos: un clasificador trivial “todo legítimo” "
+        "tendría Accuracy 99,83 % y no detectaría ningún fraude.",
         S["body"],
     ))
-    story.append(fig("02_amount_by_class.png", 13 * cm))
-    story.append(Paragraph("Figura 2. Distribución de Amount por clase (legítimas en escala log).", S["caption"]))
-    story.append(fig("04_corr_with_class.png", 12 * cm))
-    story.append(Paragraph("Figura 3. Variables con mayor |correlación| absoluta con Class.", S["caption"]))
+    story.append(fig("04_corr_with_class.png", max_w=12 * cm, max_h=5.4 * cm))
+    story.append(Paragraph("Figura 2. |Correlación| absoluta con Class (top 10). Respaldo descriptivo de H1.", S["caption"]))
+
+    story.append(Paragraph("3.3 Preparación y CRISP-DM", S["h2"]))
     story.append(Paragraph(
-        "El EDA confirma que un subconjunto de componentes PCA (V17, V14, V12, V10) concentra "
-        "señal discriminativa, mientras que Amount por sí solo no separa bien las clases: "
-        "muchos fraudes ocurren en montos bajos o medios. Time muestra concentraciones distintas "
-        "entre legítimas y fraudes, lo que motiva la validación temporal.",
+        "Metodología. Se siguió CRISP-DM: negocio (sección 2), comprensión y preparación "
+        "de datos (esta sección), modelado y evaluación (sección 4) y traducción a una "
+        "decisión (secciones 5–6). Todas las transformaciones viven en un Pipeline de "
+        "scikit-learn / imbalanced-learn: StandardScaler sobre Time y Amount_log; "
+        "V1–V28 pasan sin cambios; SMOTE, cuando se usa, queda <b>dentro</b> del "
+        "pipeline para no filtrar información del test. random_state=42.",
+        S["body"],
+    ))
+    story.append(table(
+        [
+            ["Diseño de validación", "Pregunta que responde"],
+            ["Holdout estratificado 80/20 (una sola vez)", "¿Cuánto rinde en una mezcla i.i.d. de las 48 h?"],
+            ["Split temporal por Time (80 % anterior → 20 % posterior)", "¿Generaliza hacia operaciones futuras?"],
+            ["Comparación de cinco algoritmos en ambos esquemas", "¿Qué modelo discrimina mejor (PR-AUC) sin saturar alertas?"],
+        ],
+        col_widths=[8.2 * cm, 7.8 * cm],
+    ))
+    story.append(Paragraph("Tabla 4. Dos diseños de validación, como pidió la devolución del tutor.", S["caption"]))
+
+    # -------- 4. Modelado --------
+    story.append(Paragraph("4. Modelado y evaluación", S["h1"]))
+    story.append(Paragraph("4.1 Algoritmos y regla de selección", S["h2"]))
+    story.append(Paragraph(
+        "Se compararon cinco configuraciones, todas con manejo explícito del desbalance: "
+        "Regresión Logística (baseline, class_weight=balanced), Random Forest "
+        "(class_weight), XGBoost (scale_pos_weight), LightGBM (is_unbalance) y "
+        "XGBoost+SMOTE dentro del pipeline. <b>Regla de selección definida antes de "
+        "elegir el umbral:</b> gana el mayor PR-AUC en el holdout aleatorio; el desempate "
+        "lo dan Recall, Precision y el volumen de alertas. El split temporal no cambia "
+        "la regla: sirve para medir robustez y avisar si el candidato se degrada.",
         S["body"],
     ))
 
-    story.append(Paragraph("3.3 Metodología CRISP-DM y validación", S["h2"]))
-    story.append(Paragraph(
-        "Se siguen las fases CRISP-DM. Se comparan dos esquemas de validación: "
-        "(A) holdout estratificado 80/20 aleatorio; (B) split temporal por Time "
-        "(80 % operaciones anteriores → train; 20 % posteriores → test). "
-        "Métricas principales: PR-AUC, Recall y Precision. Complementarias: F1, ROC-AUC, "
-        "matriz de confusión, captura Top-K y volumen de alertas por umbral.",
-        S["body"],
-    ))
-
-    # 4. Modelado
-    story.append(Paragraph("4. Modelado y Evaluación", S["h1"]))
-    story.append(Paragraph(
-        "Se evaluaron cinco configuraciones: Regresión Logística (baseline, class_weight=balanced), "
-        "Random Forest, XGBoost (scale_pos_weight), LightGBM (is_unbalance) y XGBoost+SMOTE "
-        "dentro del pipeline.",
-        S["body"],
-    ))
-
-    # Tabla comparativa aleatorio
-    story.append(Paragraph("4.1 Resultados — split aleatorio", S["h2"]))
-    header = ["Modelo", "PR-AUC", "Recall", "Precision", "F1", "Alertas", "Fraud@100", "Fraud@500"]
-    rows = [header]
+    rows = [["Modelo", "PR-AUC", "Recall", "Precision", "F1", "Alertas", "Fraud@100", "Fraud@500"]]
     for name, m in rand["models"].items():
         m0 = m["metrics_thr_0.5"]
         c = {r["k"]: r for r in m["captura_at_k"]}
+        mark = f"{name} *" if name == best_name else name
         rows.append([
-            name,
+            mark,
             num(m0["pr_auc"]),
-            pct(m0["recall"], 1),
-            pct(m0["precision"], 1),
+            pct(m0["recall"]),
+            pct(m0["precision"]),
             num(m0["f1"]),
             str(m0["alerts"]),
             str(c[100]["frauds_found"]),
             str(c[500]["frauds_found"]),
         ])
-    story.append(table(rows, col_widths=[3.2*cm, 1.8*cm, 1.8*cm, 2*cm, 1.5*cm, 1.6*cm, 1.8*cm, 1.8*cm]))
+    story.append(table(rows, col_widths=[3.4*cm, 1.7*cm, 1.8*cm, 2.0*cm, 1.5*cm, 1.6*cm, 1.9*cm, 2.0*cm]))
     story.append(Paragraph(
-        f"Tabla 1. Comparativa en holdout aleatorio (umbral 0,5). Mejor modelo: <b>{best_r_name}</b>.",
+        f"Tabla 5. Holdout aleatorio, umbral 0,5. *Candidato: {best_name}. Test: "
+        f"{rand['meta']['test_n']:,} filas / {n_pos} fraudes.",
         S["caption"],
     ))
 
-    story.append(fig("06_pr_curve_aleatorio.png", 10 * cm))
-    story.append(Paragraph("Figura 4. Curva Precision-Recall del modelo seleccionado.", S["caption"]))
     story.append(Paragraph(
-        f"Observación clave de la comparación: LightGBM con <i>is_unbalance</i> obtiene un PR-AUC "
-        f"muy bajo pese a un Recall razonable, lo que ilustra por qué <b>PR-AUC</b> es la métrica "
-        f"de ranking preferida frente a Accuracy o un Recall aislado. XGBoost+SMOTE mejora el "
-        f"Recall respecto de XGBoost puro, pero degrada fuerte la Precision (muchas más alertas), "
-        f"por lo que no se elige como modelo final.",
+        f"LightGBM obtiene Recall razonable ({pct(rand['models']['LightGBM']['metrics_thr_0.5']['recall'])}) "
+        f"pero PR-AUC {num(rand['models']['LightGBM']['metrics_thr_0.5']['pr_auc'])}: "
+        "el ranking es pobre y Top-100 apenas captura 3 fraudes. XGBoost+SMOTE sube "
+        f"Recall a {pct(rand['models']['XGBoost_SMOTE']['metrics_thr_0.5']['recall'])} "
+        f"pero cae la Precision a {pct(rand['models']['XGBoost_SMOTE']['metrics_thr_0.5']['precision'])} "
+        f"({rand['models']['XGBoost_SMOTE']['metrics_thr_0.5']['alerts']} alertas). "
+        "La logística detecta mucho (Recall alto) a costa de 1.499 alertas. "
+        f"Random Forest es preciso pero recupera menos fraude. {best_name} gana el "
+        "equilibrio que pide el negocio: PR-AUC 0,827, 89 alertas y 77 fraudes en Top-100.",
         S["body"],
+    ))
+
+    story.append(fig("06_pr_curve_aleatorio.png", max_w=10.5 * cm, max_h=7.2 * cm))
+    story.append(Paragraph(
+        f"Figura 3. Curva Precision-Recall de {best_name} en el holdout aleatorio (AP = 0,83).",
+        S["caption"],
     ))
 
     story.append(Paragraph("4.2 Métrica de negocio: captura Top-K", S["h2"]))
     story.append(Paragraph(
-        f"Respondiendo a la devolución del tutor: si el equipo revisa las 100 operaciones de "
-        f"mayor score, captura <b>{cap[100]['frauds_found']}</b> fraudes "
-        f"(Precision@100 = {pct(cap[100]['precision_at_k'])}; "
-        f"Recall@100 = {pct(cap[100]['recall_at_k'])}). "
-        f"Con 500 revisiones: <b>{cap[500]['frauds_found']}</b> fraudes "
-        f"(lift {num(cap[500]['lift'], 1)}×).",
+        f"Si el equipo revisa las 100 operaciones de mayor score encuentra "
+        f"<b>{cap[100]['frauds_found']}</b> de los {n_pos} fraudes del holdout "
+        f"(Recall@100 = {pct(cap[100]['recall_at_k'])}; Precision@100 = "
+        f"{pct(cap[100]['precision_at_k'])}). Ampliar a 500 revisiones suma solo "
+        f"{cap[500]['frauds_found'] - cap[100]['frauds_found']} fraudes más "
+        f"(lift {num(cap[500]['lift'], 1)}× sobre la tasa base de {pct(cap[500]['base_rate'], 3)}). "
+        "La curva se aplana: el valor está en el tope del ranking, no en revisar más y más.",
         S["body"],
     ))
-    story.append(fig("08_captura_topk_aleatorio.png", 13 * cm))
-    story.append(Paragraph("Figura 5. Fraudes encontrados vs operaciones revisadas (Top-K).", S["caption"]))
-
-    story.append(Paragraph("4.3 Precision, alertas y umbral operativo", S["h2"]))
+    story.append(fig("08_captura_topk_aleatorio.png", max_w=13.5 * cm, max_h=5.8 * cm))
     story.append(Paragraph(
-        f"Con tan pocos fraudes, un FPR del 5 % sobre ~{m50['n_neg']:,} legítimas del holdout "
-        f"implicaría miles de alertas falsas. Por eso el umbral no se fija solo por FPR. "
-        f"Con la regla de negocio (Precision ≥ 50 % y tope de alertas), el umbral seleccionado "
-        f"es <b>{msel['threshold']:.2f}</b>: Recall {pct(msel['recall'])}, "
-        f"Precision {pct(msel['precision'])}, alertas a revisar = <b>{msel['alerts']}</b> "
-        f"(TP={msel['tp']}, FP={msel['fp']}).",
-        S["body"],
+        "Figura 4. Fraudes encontrados vs operaciones revisadas (Top-K). Líneas en K=100 y K=500.",
+        S["caption"],
     ))
-    story.append(fig("09_workload_aleatorio.png", 13 * cm))
-    story.append(Paragraph("Figura 6. Precision y Recall en función de la carga de alertas.", S["caption"]))
-    story.append(fig("07_confusion_aleatorio.png", 9 * cm))
-    story.append(Paragraph("Figura 7. Matriz de confusión con umbral seleccionado.", S["caption"]))
 
-    story.append(Paragraph("4.4 Validación temporal vs aleatoria", S["h2"]))
+    story.append(Paragraph("4.3 Umbral operativo y carga de revisión", S["h2"]))
     story.append(Paragraph(
-        f"En el split temporal (train hasta t={temp['meta'].get('train_time_max', '—')}, "
-        f"test desde t={temp['meta'].get('test_time_min', '—')}; "
-        f"{temp['meta'].get('test_fraud', '—')} fraudes en test), el mejor modelo es "
-        f"<b>{best_t_name}</b> con PR-AUC={num(m50_t['pr_auc'])}, "
-        f"Recall={pct(m50_t['recall'])} y Precision={pct(m50_t['precision'])}. "
-        f"La caída o variación respecto del split aleatorio ilustra el riesgo de sobreestimar "
-        f"performance cuando el futuro se mezcla aleatoriamente con el pasado.",
+        f"Un FPR del 5 % sobre {n_neg:,} legítimas implica ~{fpr5_alerts:,} falsos "
+        f"positivos en un solo holdout. Por eso el umbral no se fija por FPR. "
+        f"Regla usada: Precision ≥ 50 % y tope de alertas cercano a 100–500 "
+        f"(capacidad de un turno). El umbral {msel['threshold']:.2f} deja "
+        f"<b>{msel['alerts']} alertas</b>, Recall {pct(msel['recall'])} y Precision "
+        f"{pct(msel['precision'])} (TP={msel['tp']}, FP={msel['fp']}, FN={msel['fn']}). "
+        "Esa es la carga real que tendría que revisar el equipo.",
         S["body"],
     ))
-    story.append(fig("11_comparison_pr_auc.png", 14 * cm))
-    story.append(Paragraph("Figura 8. PR-AUC por modelo: aleatorio vs temporal.", S["caption"]))
-    # Tabla temporal resumida
-    header_t = ["Modelo", "PR-AUC", "Recall", "Precision", "Fraud@100", "Fraud@500"]
-    rows_t = [header_t]
+    story.append(fig("09_workload_aleatorio.png", max_w=13.5 * cm, max_h=5.8 * cm))
+    story.append(Paragraph(
+        "Figura 5. Precision y Recall en función del número de alertas. El recorte operativo está a la izquierda.",
+        S["caption"],
+    ))
+    story.append(fig("07_confusion_aleatorio.png", max_w=9.5 * cm, max_h=6.5 * cm))
+    story.append(Paragraph(
+        f"Figura 6. Matriz de confusión de {best_name} con umbral {msel['threshold']:.2f}.",
+        S["caption"],
+    ))
+
+    story.append(Paragraph("4.4 Validación temporal versus aleatoria", S["h2"]))
+    story.append(Paragraph(
+        f"Se ordenó por Time y se entrenó con las primeras {temp['meta']['train_n']:,} "
+        f"operaciones ({temp['meta']['train_fraud']} fraudes; Time ≤ "
+        f"{temp['meta']['train_time_max']:.0f} s) y se evaluó con las "
+        f"{temp['meta']['test_n']:,} posteriores ({temp['meta']['test_fraud']} fraudes). "
+        "Es el diseño que pide la devolución y el más cercano a producción: el modelo "
+        "no ve el “futuro” de las 48 horas.",
+        S["body"],
+    ))
+
+    rows_t = [["Modelo", "PR-AUC", "Recall", "Precision", "Fraud@100", "Fraud@500"]]
     for name, m in temp["models"].items():
         m0 = m["metrics_thr_0.5"]
         c = {r["k"]: r for r in m["captura_at_k"]}
+        mark = f"{name} *" if name == best_t else name
         rows_t.append([
-            name, num(m0["pr_auc"]), pct(m0["recall"], 1), pct(m0["precision"], 1),
+            mark, num(m0["pr_auc"]), pct(m0["recall"]), pct(m0["precision"]),
             str(c[100]["frauds_found"]), str(c[500]["frauds_found"]),
         ])
-    story.append(table(rows_t, col_widths=[3.4*cm, 2*cm, 2*cm, 2.2*cm, 2.2*cm, 2.2*cm]))
+    story.append(table(rows_t, col_widths=[3.6*cm, 2.2*cm, 2.2*cm, 2.4*cm, 2.6*cm, 2.6*cm]))
     story.append(Paragraph(
-        f"Tabla 2. Comparativa en holdout temporal. Mejor modelo: <b>{best_t_name}</b>.",
+        f"Tabla 6. Holdout temporal. *Mejor PR-AUC: {best_t}. Test: "
+        f"{temp['meta']['test_fraud']} fraudes.",
         S["caption"],
     ))
-
-    story.append(Paragraph("4.5 Interpretabilidad", S["h2"]))
-    story.append(fig("10_importance_aleatorio.png", 12 * cm))
+    story.append(fig("11_comparison_pr_auc.png", max_w=15 * cm, max_h=5.6 * cm))
     story.append(Paragraph(
-        "Figura 9. Importancia de variables del modelo final (limitada por anonimización PCA).",
+        "Figura 7. PR-AUC por modelo en ambos esquemas. LightGBM se cae en ranking; el resto sostiene la señal.",
         S["caption"],
     ))
     story.append(Paragraph(
-        "Aunque las importancias ayudan a priorizar componentes PCA, la anonimización limita "
-        "la explicación causal ante auditorías. En un entorno productivo convendría complementar "
-        "con señales interpretables (país, comercio, dispositivo, historial del cliente).",
+        f"Lectura. {best_name} sigue siendo competitivo en temporal (PR-AUC "
+        f"{num(temp['models']['XGBoost']['metrics_thr_0.5']['pr_auc'])}), pero "
+        f"{best_t} lo supera levemente y con Precision {pct(m50_t['precision'])}. "
+        f"La captura Top-100 baja de {cap[100]['frauds_found']} a "
+        f"{cap_t[100]['frauds_found']} fraudes, en parte porque el test temporal "
+        f"tiene menos positivos ({temp['meta']['test_fraud']} vs {n_pos}). "
+        "H3 queda respaldada: el aleatorio no miente, pero es el techo; el temporal "
+        "es el piso más honesto para decidir un piloto.",
         S["body"],
     ))
 
-    # 5. Impacto
-    story.append(Paragraph("5. Impacto en el Negocio", S["h1"]))
+    # -------- 5. Interpretación --------
+    story.append(Paragraph("5. Interpretación del modelo", S["h1"]))
     story.append(Paragraph(
-        "El valor del modelo no es solo “detectar más fraude”, sino <b>ordenar la cola de revisión</b>: "
-        "el equipo puede concentrar esfuerzo en las 100–500 operaciones más riesgosas y recuperar "
-        "una fracción alta de fraudes con un costo operativo acotado. Esto reduce pérdidas por "
-        "fraudes no detectados y evita el desgaste de miles de falsas alarmas que produciría "
-        "un umbral basado únicamente en FPR.",
+        f"Sobre {best_name} se leyeron importancias de split (no son causalidad ni "
+        "SHAP). Las V* más usadas coinciden con el EDA (V14, V17, V12 y vecinas). "
+        "Time y Amount_log aportan, pero no lideran. Como las V* son PCA, el negocio "
+        "no puede traducir “sube V14” a una regla de comercio o país: el modelo "
+        "prioriza, no explica el fraude ante un auditor. En un emisor real habría que "
+        "complementar con features interpretables (MCC, dispositivo, geo, historial).",
         S["body"],
     ))
-    story.append(Paragraph("5.1 Traducción a operación diaria", S["h2"]))
+    story.append(fig("10_importance_aleatorio.png", max_w=12.5 * cm, max_h=6.0 * cm))
     story.append(Paragraph(
-        f"En el holdout aleatorio hay {m50['n_pos']} fraudes reales. Con XGBoost, revisar las "
-        f"100 operaciones de mayor score recupera {cap[100]['frauds_found']} fraudes "
-        f"({pct(cap[100]['recall_at_k'])} del total del holdout). Ampliar a 500 revisiones "
-        f"sube la captura a {cap[500]['frauds_found']} fraudes ({pct(cap[500]['recall_at_k'])}), "
-        f"con Precision@500 = {pct(cap[500]['precision_at_k'])}. Ese trade-off es transparente "
-        f"para un gerente de fraude: el costo es “horas de analista”, el beneficio es “fraudes "
-        f"evitados / recuperados”.",
-        S["body"],
+        f"Figura 8. Importancia de variables de {best_name} (split aleatorio). Lectura descriptiva, no causal.",
+        S["caption"],
     ))
     story.append(Paragraph(
-        f"Con el umbral operativo {msel['threshold']:.2f}, el sistema emite solo "
-        f"<b>{msel['alerts']} alertas</b> (TP={msel['tp']}, FP={msel['fp']}). "
-        f"Comparado con un FPR del 5 % — que generaría aproximadamente "
-        f"{int(0.05 * m50['n_neg']):,} alertas falsas solo en el holdout — la reducción de "
-        f"ruido operativo es de órdenes de magnitud.",
-        S["body"],
-    ))
-    story.append(Paragraph("5.2 Riesgos, limitaciones y escalabilidad", S["h2"]))
-    story.append(Paragraph(
-        "<b>Riesgos y limitaciones:</b> representatividad temporal (solo 2 días de 2013); "
-        "poca interpretabilidad de V1–V28 ante auditoría; posible drift de patrones de fraude; "
-        "umbral optimizado sobre un holdout — requiere monitoreo post-despliegue. "
-        "Además, el dataset no incluye contexto de cliente ni comercio, por lo que el modelo "
-        "aprende correlaciones de componentes PCA que pueden no transferir a otros emisores.",
-        S["body"],
-    ))
-    story.append(Paragraph(
-        "<b>Escalabilidad y próximos pasos:</b> (1) scoring batch o near-real-time sobre el "
-        "motor de autorizaciones; (2) feedback loop del analista para reentrenar con etiquetas "
-        "nuevas; (3) calibración de probabilidades; (4) features adicionales (dispositivo, geo, "
-        "historial del cliente, merchant risk); (5) monitoreo de drift de score y de lift@K.",
-        S["body"],
-    ))
-    story.append(Paragraph(
-        "<b>Benchmark de reglas estáticas (cualitativo):</b> un sistema de reglas típicamente "
-        "prioriza montos altos, países de riesgo o velocidad de compra. En este dataset muchos "
-        "fraudes no se distinguen solo por Amount; el modelo captura patrones multivariados en "
-        "PCA y prioriza mejor la cola. La recomendación no es reemplazar por completo las reglas, "
-        "sino combinarlas con el score ML como capa de priorización.",
+        "El score se usa para <b>ordenar</b>. Un valor 0,80 no se interpreta aquí como "
+        "“probabilidad calibrada del 80 %”: no se reporta curva de calibración. "
+        "Para un umbral de corte (sección 4.3) alcanza con el ranking y la matriz de "
+        "confusión. Si el área quisiera comunicar “1 de cada 5 alertas es fraude”, "
+        "habría que calibrar (Platt / isotónica) sobre un conjunto aparte.",
         S["body"],
     ))
 
-    # 6. Ética
-    story.append(Paragraph("6. Consideraciones éticas y de privacidad", S["h1"]))
+    # -------- 6. Impacto --------
+    story.append(Paragraph("6. Impacto en el negocio, riesgos y ética", S["h1"]))
     story.append(Paragraph(
-        "Los datos están anonimizados mediante PCA; no se manipulan PII. Un falso positivo puede "
-        "bloquear a un cliente legítimo (fricción y reputación); un falso negativo implica pérdida "
-        "financiera. El umbral se elige de forma explícita como decisión de negocio, no como "
-        "default técnico. Uso académico bajo licencia ODbL.",
+        "Sin ranking, capturar ~81 % de los fraudes del holdout exigiría revisar una "
+        "fracción enorme de la cartera o convivir con miles de alertas. Con el modelo, "
+        f"ese Recall se obtiene revisando {msel['alerts']} operaciones, o "
+        f"{cap[100]['frauds_found']} fraudes con solo 100 revisiones. El ahorro no es "
+        "un monto de 2013 “real”: es <b>capacidad de analista liberada</b> y fraudes "
+        "que entran a la cola a tiempo. Un FPR del 5 % costaría ~"
+        f"{fpr5_alerts:,} revisiones falsas; el umbral elegido cuesta {msel['fp']} FP.",
         S["body"],
     ))
-    story.append(Paragraph(
-        "Adicionalmente, se recomienda: (a) registrar quién revisó cada alerta y el resultado "
-        "(fraude confirmado / falso positivo) para auditoría; (b) evitar discriminación indirecta "
-        "si en el futuro se agregan variables demográficas o geográficas sensibles; "
-        "(c) comunicar al cliente, cuando corresponda, mecanismos de apelación ante bloqueos; "
-        "(d) limitar el acceso a scores y features al personal autorizado (need-to-know).",
-        S["body"],
+    story.append(table(
+        [
+            ["Escenario de revisión", "Operaciones a mirar", "Fraudes hallados", "Precision"],
+            ["Azar (100 casos)", "100", f"≈ {max(1, int(100 * n_pos / (n_pos + n_neg)))}", "≈ tasa base"],
+            ["Modelo Top-100", "100", str(cap[100]["frauds_found"]), pct(cap[100]["precision_at_k"])],
+            ["Modelo Top-500", "500", str(cap[500]["frauds_found"]), pct(cap[500]["precision_at_k"])],
+            [f"Umbral {msel['threshold']:.2f}", str(msel["alerts"]), str(msel["tp"]), pct(msel["precision"])],
+            ["Regla FPR = 5 %", f"~{fpr5_alerts:,}+", "alto Recall, baja Precision", "muy baja"],
+        ],
+        col_widths=[4.2 * cm, 4.0 * cm, 4.0 * cm, 3.8 * cm],
     ))
+    story.append(Paragraph("Tabla 7. El valor está en ordenar la cola, no en umbrales holgados de FPR.", S["caption"]))
+
+    story.append(table(
+        [
+            ["Riesgo", "Mitigación"],
+            ["Dataset de solo 2 días (2013), Europa", "Tratar el caso como prueba de método; reentrenar con datos propios del emisor."],
+            ["Drift de patrones de fraude", "Monitorear PR-AUC, Precision y captura@K por día; reentrenar."],
+            ["PCA poco explicable ante auditoría", "Usar el score para priorizar; complementar con reglas y features nativas."],
+            ["Falso positivo = bloqueo de cliente", "Umbral según capacidad; canal de apelación; no automatizar el rechazo final."],
+            ["Fuga si SMOTE o scaler ven el test", "Pipeline único; holdout separado antes de cualquier ajuste."],
+            ["Privacidad", "Datos ya anonimizados; minimización; acceso need-to-know al score."],
+        ],
+        col_widths=[6.2 * cm, 9.8 * cm],
+    ))
+    story.append(Paragraph("Tabla 8. Riesgos y mitigaciones. El prototipo no autoriza un despliegue automático.", S["caption"]))
     story.append(Paragraph(
-        "El equipo asume que este trabajo es un prototipo académico y no un sistema de decisión "
-        "automatizada en producción: cualquier despliegue real requeriría validación legal "
-        "(p. ej. lineamientos de modelos de riesgo), pruebas con datos propios del emisor y "
-        "supervisión humana en la cola de alertas.",
+        "<b>Ética.</b> No hay PII. El umbral es una decisión explícita de negocio "
+        "(Precision y cupo), no un default de 0,5. Un falso negativo pierde dinero; "
+        "un falso positivo daña al cliente: por eso se reportan ambos y el volumen "
+        "absoluto de alertas. Uso académico bajo ODbL. Cualquier producción requeriría "
+        "supervisión humana, registro de cada alerta y revisión legal del modelo de riesgo.",
         S["body"],
     ))
 
-    # 7. Conclusiones
-    story.append(Paragraph("7. Conclusiones y Recomendaciones", S["h1"]))
-    bullets = [
-        f"Seleccionar <b>{best_r_name}</b> como modelo productivo candidato (mejor PR-AUC en holdout aleatorio).",
-        "Reportar siempre PR-AUC, Recall, Precision y volumen de alertas; no guiarse solo por FPR o Accuracy.",
-        "Usar captura Top-100 / Top-500 como KPI operativo de la cola de revisión.",
-        "Validar con esquema temporal antes de desplegar; el split aleatorio puede ser optimista.",
-        "Implementar monitoreo continuo del umbral y del lift@K con feedback del equipo de fraude.",
-    ]
-    for b in bullets:
+    # -------- 7. Conclusiones --------
+    story.append(Paragraph("7. Conclusiones y recomendaciones", S["h1"]))
+    for b in [
+        f"El problema se formuló como <b>priorización bajo capacidad limitada</b>. PR-AUC, Recall, Precision y captura Top-K reflejan esa decisión mejor que Accuracy o un FPR suelto.",
+        f"<b>{best_name}</b> es el candidato en distribución mezclada: PR-AUC {num(m50['pr_auc'])}, Recall {pct(m50['recall'])}, Precision {pct(m50['precision'])}; Top-100 = {cap[100]['frauds_found']} fraudes; umbral {msel['threshold']:.2f} → {msel['alerts']} alertas.",
+        f"H1 tiene respaldo descriptivo (V17, V14, V12). H3 también: en temporal gana {best_t} (PR-AUC {num(m50_t['pr_auc'])}) y la captura Top-100 baja a {cap_t[100]['frauds_found']}. El aleatorio es techo; el temporal es la prueba de piloto.",
+        "SMOTE y LightGBM (is_unbalance) no se eligen: mejoran o sostienen Recall pero destruyen Precision o PR-AUC.",
+        "Recomendación: <b>no desplegar a ciegas</b>. Usar el score para ordenar la cola, fijar el umbral según el turno de analistas, reentrenar con datos actuales del emisor y medir captura@100/@500 y drift en una ventana temporal nueva.",
+    ]:
         story.append(Paragraph(f"• {b}", S["bullet"]))
 
-    story.append(PageBreak())
-    story.append(Paragraph("Anexos", S["h1"]))
     story.append(Paragraph(
-        "Código reproducible en el repositorio GitHub del Grupo 33 "
-        "(notebook + módulo src + requirements). Figuras adicionales en reports/figures/. "
-        "Resultados numéricos serializados en reports/results.json.",
+        "Código. Repositorio del Grupo 33: notebook "
+        "<i>notebooks/TP_Final_Deteccion_Fraude.ipynb</i>, módulo <i>src/</i>, "
+        "<i>requirements.txt</i> y <i>reports/results.json</i>. El pipeline se reproduce con "
+        "<i>python -m src.run_pipeline</i>.",
         S["body"],
     ))
-    story.append(fig("03_time_by_class.png", 13 * cm))
-    story.append(Paragraph("Anexo A. Distribución temporal por clase.", S["caption"]))
-    story.append(fig("05_boxplots_by_class.png", 14 * cm))
-    story.append(Paragraph("Anexo B. Boxplots de variables discriminativas por clase.", S["caption"]))
-    story.append(fig("08_captura_topk_temporal.png", 13 * cm))
-    story.append(Paragraph("Anexo C. Captura Top-K en validación temporal.", S["caption"]))
 
-    def _footer(canvas, doc):
-        canvas.saveState()
-        canvas.setFont("Helvetica", 8)
-        canvas.setFillColor(colors.grey)
-        canvas.drawCentredString(A4[0] / 2, 1.2 * cm, f"Grupo 33 — Detección de Fraude | Página {doc.page}")
-        canvas.restoreState()
+    # -------- Anexos (siguen al cuerpo; consigna permite anexos fuera del tope) --------
+    story.append(PageBreak())
+    story.append(Paragraph("Anexos", S["h1"]))
+    story.append(Paragraph("Anexo A. Trazabilidad con la consigna, la pre-entrega y la devolución", S["h2"]))
+    story.append(table(
+        [
+            ["Peso", "Criterio", "Dónde está en este informe"],
+            ["20 %", "Problema y negocio", "§1–2: ranking, costos FP/FN, KPI Top-K"],
+            ["20 %", "Datos y metodología", "§3: calidad, EDA, Pipeline, dos validaciones"],
+            ["15 %", "Selección del modelo", "§4.1 y Tablas 5–6"],
+            ["15 %", "Calidad de métricas", "PR-AUC, Recall, Precision, Top-K, alertas"],
+            ["15 %", "Interpretación y valor", "§5–6: importancias y carga de revisión"],
+            ["5 %", "Ética y privacidad", "§6 y Tabla 8"],
+            ["10 %", "Claridad", "Resumen no técnico, figuras y recomendación"],
+        ],
+        col_widths=[2.0 * cm, 5.0 * cm, 9.0 * cm],
+    ))
+    story.append(Paragraph("Tabla A1. Cobertura de los criterios de evaluación.", S["caption"]))
+    story.append(table(
+        [
+            ["Pedido de la devolución", "Estado"],
+            ["PR-AUC, Recall y Precision como métricas principales", "Tablas 1, 5 y 6; no se decide por FPR."],
+            ["Cuántas operaciones revisaría el equipo", "§4.3: 88 alertas vs ~2.832 si FPR=5 %."],
+            ["Captura si se revisan Top-100 / Top-500", "Figura 4 y Tabla 7."],
+            ["Comparar split aleatorio vs temporal por Time", "§4.4, Figura 7, Tabla 6."],
+        ],
+        col_widths=[8.0 * cm, 8.0 * cm],
+    ))
+    story.append(Paragraph("Tabla A2. Cierre de la devolución del tutor.", S["caption"]))
+
+    story.append(Paragraph("Anexo B. Figuras complementarias de EDA", S["h2"]))
+    story.append(fig("02_amount_by_class.png", max_w=14.5 * cm, max_h=5.4 * cm))
+    story.append(Paragraph("Figura B1. Amount por clase. Las legítimas se muestran con eje Y en log.", S["caption"]))
+    story.append(fig("03_time_by_class.png", max_w=14.5 * cm, max_h=5.2 * cm))
+    story.append(Paragraph("Figura B2. Densidad de Time por clase: hay estructura temporal (H3).", S["caption"]))
+    story.append(fig("05_boxplots_by_class.png", max_w=14.5 * cm, max_h=5.2 * cm))
+    story.append(Paragraph("Figura B3. Boxplots de V14, V17 y V12 por clase.", S["caption"]))
+    story.append(fig("08_captura_topk_temporal.png", max_w=13.5 * cm, max_h=5.4 * cm))
+    story.append(Paragraph(
+        f"Figura B4. Captura Top-K en el split temporal ({best_t}).",
+        S["caption"],
+    ))
+
+    story.append(Paragraph("Anexo C. Reproducibilidad y fuentes", S["h2"]))
+    story.append(Paragraph(
+        "Dal Pozzolo, A., Caelen, O., Johnson, R. A. y Bontempi, G. (2015). "
+        "<i>Calibrating Probability with Undersampling for Unbalanced Classification</i>. "
+        "IEEE CIDM. Dataset: Credit Card Fraud Detection (ULB). Licencia ODbL v1.0. "
+        "Chapman, P. et al. (2000). <i>CRISP-DM 1.0</i>. "
+        "Repositorio del equipo: https://github.com/SolKidonakis/TP_Final_DataScience",
+        S["body"],
+    ))
 
     doc = SimpleDocTemplate(
         str(OUT),
@@ -486,13 +637,24 @@ def build():
         leftMargin=2 * cm,
         rightMargin=2 * cm,
         topMargin=2 * cm,
-        bottomMargin=2 * cm,
+        bottomMargin=1.8 * cm,
         title="Informe Final — Detección de Fraude — Grupo 33",
         author="Grupo 33",
     )
-    doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
-    print(f"Informe generado: {OUT}")
+    doc.build(story, onFirstPage=footer, onLaterPages=footer)
+    print(f"Informe: {OUT}")
+
+
+def main():
+    build()
+    from pypdf import PdfReader
+
+    n = len(PdfReader(str(OUT)).pages)
+    print(f"Páginas: {n} (cuerpo + anexos; tope de consigna = 12 sin anexos)")
+    parent = ROOT.parent
+    shutil.copy2(OUT, parent / "Informe_Final_Grupo33.pdf")
+    print(f"Copia: {parent / 'Informe_Final_Grupo33.pdf'}")
 
 
 if __name__ == "__main__":
-    build()
+    main()
