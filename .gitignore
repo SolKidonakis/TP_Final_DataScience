@@ -1,36 +1,26 @@
-# Data (large CSV cached locally / downloaded from OpenML)
+# Dataset crudo (se descarga al ejecutar el notebook)
 data/
 *.csv
-results/
+!results/tables/*.csv
 
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.egg-info/
-.eggs/
-dist/
-build/
 .venv/
 venv/
 .env
 
 # Jupyter
 .ipynb_checkpoints/
-*/.ipynb_checkpoints/
 
-# IDE / OS
+# IDE
 .idea/
 .vscode/
 .DS_Store
-*.swp
 .cursor/
 
-# Model / cache artifacts
+# Caches de modelos
 *.joblib
 *.pkl
 *.model
 results/cv_cache.pkl
-
-# OpenML cache (optional local)
-.openml/
