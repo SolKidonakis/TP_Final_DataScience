@@ -1,0 +1,37 @@
+# Data (large CSV cached locally / downloaded from OpenML)
+data/
+*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+.cursor/
+
+# Report intermediates (figuras se versionan para el informe)
+# reports/figures/*.png
+
+# Model artifacts
+*.joblib
+*.pkl
+*.model
+
+# OpenML cache (optional local)
+.openml/
