@@ -28,7 +28,6 @@ TP_Final_DataScience/
 │   ├── metrics.py
 │   ├── modeling.py
 │   └── experiments.py
-├── results/                 # tablas y figuras del pipeline
 ├── data_log.md
 ├── requirements.txt
 └── README.md

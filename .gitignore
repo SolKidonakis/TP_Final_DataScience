@@ -1,7 +1,7 @@
 # Data (large CSV cached locally / downloaded from OpenML)
 data/
 *.csv
-!results/tables/*.csv
+results/
 
 # Python
 __pycache__/
