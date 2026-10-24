@@ -29,11 +29,7 @@ jupyter notebook notebooks/TP_Final_Deteccion_Fraude.ipynb
 ```
 
 El dataset ULB se descarga solo (mirror de TensorFlow) y se cachea en `data/` (no va a git).
-Al correr el notebook se actualizan `results/figures` y `results/tables`. El informe se regenera con:
-
-```bash
-python scripts/build_informe.py
-```
+Al correr el notebook se actualizan `results/figures` y `results/tables`.
 
 ## Licencia de datos
 
