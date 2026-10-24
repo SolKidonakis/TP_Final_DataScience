@@ -27,7 +27,7 @@ TP_Final_DataScience/
 
 **En Colab:** abrir el notebook con el botón de arriba y ejecutar todo (Entorno de ejecución → Ejecutar todas). La primera celda clona el repo e instala lo que falta.
 
-**En local:**
+**En local:** usar Python 3.13 (las versiones de `requirements.txt` son las de Colab y no tienen instaladores para Python 3.14).
 
 ```bash
 pip install -r requirements.txt
@@ -35,7 +35,7 @@ jupyter notebook notebooks/TP_Final_Deteccion_Fraude.ipynb
 ```
 
 El dataset ULB se descarga solo (mirror de TensorFlow) y se cachea en `data/` (no va a git).
-Ejecutarlo de arriba hacia abajo (≈ 5–10 min) regenera `results/figures`, `results/tables` y `results/results.json`.
+Ejecutarlo de arriba hacia abajo (≈ 10 min en una PC con 4 núcleos; ≈ 40 min en Colab gratuito) regenera `results/figures`, `results/tables` y `results/results.json`.
 
 Para rearmar el informe con esas cifras:
 
